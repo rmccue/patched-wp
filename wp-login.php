@@ -407,7 +407,7 @@ function retrieve_password() {
  * @return string Path to the template
  */
 function login_locate_template( $template ) {
-	$template_location = locate_template( 'core/' . $template );
+	$template_location = locate_template( 'core/' . $template . '.php' );
 	if (empty($template_location)) {
 		$template_location = ABSPATH . WPINC . '/theme-compat/core/' . $template . '.php';
 	}
