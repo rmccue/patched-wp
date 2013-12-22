@@ -396,6 +396,95 @@ function retrieve_password() {
 	return true;
 }
 
+/**
+ * Locate a login template file
+ *
+ * This uses the child/parent theme's `core/$template.php` template first,
+ * before falling back to the default page in
+ * `wp-includes/theme-compat/core/$template.php` if it doesn't exist.
+ *
+ * @param string $template Template name
+ * @return string Path to the template
+ */
+function login_locate_template( $template ) {
+	$template_location = locate_template( 'core/' . $template );
+	if (empty($template_location)) {
+		$template_location = ABSPATH . WPINC . '/theme-compat/core/' . $template . '.php';
+	}
+
+	return $template_location;
+}
+
+/**
+ * Output a link to the registration form
+ *
+ * This only outputs the link if registration is enabled on the site.
+ *
+ * @param string $before Text to prepend to link (including whitespace)
+ * @param string $after Text to append to link (including whitespace)
+ * @param boolean $echo Should we output this or return it?
+ * @return string|null Link HTML if `$echo` is false
+ */
+function login_register_link( $before = '', $after = '', $echo = true ) {
+	if ( ! get_option( 'users_can_register' ) )
+		return '';
+
+	$registration_link = sprintf( '<a href="%s">%s</a>', esc_url( wp_registration_url() ), __( 'Register' ) );
+	/**
+	 * Filter the registration URL below the login form.
+	 *
+	 * @since 1.5.0
+	 *
+	 * @param string $registration_link Registration URL.
+	 */
+	$link = $before . apply_filters( 'register', $registration_link ) . $after;
+
+	if ( $echo ) {
+		echo $link;
+	}
+	else {
+		return $link;
+	}
+}
+
+function login_output_hidden_fields() {
+	global $action, $redirect_to, $interim_login, $customize_login;
+
+	switch ($action) {
+		case 'resetpass':
+		case 'rp':
+			echo '<input type="hidden" id="user_login" value="' . esc_attr( $_GET['login'] ) . '" autocomplete="off" />';
+			break;
+
+		case 'lostpassword':
+		case 'retrievepassword':
+		case 'register':
+			echo '<input type="hidden" name="redirect_to" value="' . esc_attr( $redirect_to ) . '" />';
+			break;
+
+		case 'login':
+		default:
+			if ( $interim_login ) {
+				echo '<input type="hidden" name="interim-login" value="1" />';
+			}
+			else {
+				echo '<input type="hidden" name="redirect_to" value="' . esc_attr( $redirect_to ) . '" />';
+			}
+
+			if ( $customize_login ) {
+				echo '<input type="hidden" name="customize-login" value="1" />';
+			}
+			else {
+				echo '<input type="hidden" name="testcookie" value="1" />';
+			}
+			break;
+	}
+}
+add_action( 'login_form', 'login_output_hidden_fields' );
+add_action( 'register_form', 'login_output_hidden_fields' );
+add_action( 'lostpassword_form', 'login_output_hidden_fields' );
+add_action( 'resetpassword_form', 'login_output_hidden_fields' );
+
 //
 // Main
 //
@@ -518,47 +607,10 @@ case 'retrievepassword' :
 	 */
 	do_action( 'lost_password' );
 
-	login_header(__('Lost Password'), '<p class="message">' . __('Please enter your username or email address. You will receive a link to create a new password via email.') . '</p>', $errors);
-
 	$user_login = isset($_POST['user_login']) ? wp_unslash($_POST['user_login']) : '';
 
-?>
-
-<form name="lostpasswordform" id="lostpasswordform" action="<?php echo esc_url( site_url( 'wp-login.php?action=lostpassword', 'login_post' ) ); ?>" method="post">
-	<p>
-		<label for="user_login" ><?php _e('Username or E-mail:') ?><br />
-		<input type="text" name="user_login" id="user_login" class="input" value="<?php echo esc_attr($user_login); ?>" size="20" /></label>
-	</p>
-	<?php
-	/**
-	 * Fires inside the lostpassword <form> tags, before the hidden fields.
-	 *
-	 * @since 2.1.0
-	 */
-	do_action( 'lostpassword_form' ); ?>
-	<input type="hidden" name="redirect_to" value="<?php echo esc_attr( $redirect_to ); ?>" />
-	<p class="submit"><input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="<?php esc_attr_e('Get New Password'); ?>" /></p>
-</form>
-
-<p id="nav">
-<a href="<?php echo esc_url( wp_login_url() ); ?>"><?php _e('Log in') ?></a>
-<?php
-if ( get_option( 'users_can_register' ) ) :
-	$registration_url = sprintf( '<a href="%s">%s</a>', esc_url( wp_registration_url() ), __( 'Register' ) );
-	/**
-	 * Filter the registration URL below the login form.
-	 *
-	 * @since 1.5.0
-	 *
-	 * @param string $registration_url Registration URL.
-	 */
-	echo ' | ' . apply_filters( 'register', $registration_url );
-endif;
-?>
-</p>
-
-<?php
-login_footer('user_login');
+	$template_location = login_locate_template('retrievepassword');
+	include $template_location;
 break;
 
 case 'resetpass' :
@@ -598,41 +650,8 @@ case 'rp' :
 	wp_enqueue_script('utils');
 	wp_enqueue_script('user-profile');
 
-	login_header(__('Reset Password'), '<p class="message reset-pass">' . __('Enter your new password below.') . '</p>', $errors );
-
-?>
-<form name="resetpassform" id="resetpassform" action="<?php echo esc_url( site_url( 'wp-login.php?action=resetpass&key=' . urlencode( $_GET['key'] ) . '&login=' . urlencode( $_GET['login'] ), 'login_post' ) ); ?>" method="post" autocomplete="off">
-	<input type="hidden" id="user_login" value="<?php echo esc_attr( $_GET['login'] ); ?>" autocomplete="off" />
-
-	<p>
-		<label for="pass1"><?php _e('New password') ?><br />
-		<input type="password" name="pass1" id="pass1" class="input" size="20" value="" autocomplete="off" /></label>
-	</p>
-	<p>
-		<label for="pass2"><?php _e('Confirm new password') ?><br />
-		<input type="password" name="pass2" id="pass2" class="input" size="20" value="" autocomplete="off" /></label>
-	</p>
-
-	<div id="pass-strength-result" class="hide-if-no-js"><?php _e('Strength indicator'); ?></div>
-	<p class="description indicator-hint"><?php _e('Hint: The password should be at least seven characters long. To make it stronger, use upper and lower case letters, numbers and symbols like ! " ? $ % ^ &amp; ).'); ?></p>
-
-	<br class="clear" />
-	<p class="submit"><input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="<?php esc_attr_e('Reset Password'); ?>" /></p>
-</form>
-
-<p id="nav">
-<a href="<?php echo esc_url( wp_login_url() ); ?>"><?php _e( 'Log in' ); ?></a>
-<?php
-if ( get_option( 'users_can_register' ) ) :
-	$registration_url = sprintf( '<a href="%s">%s</a>', esc_url( wp_registration_url() ), __( 'Register' ) );
-	/** This filter is documented in wp-login.php */
-	echo ' | ' . apply_filters( 'register', $registration_url );
-endif;
-?>
-</p>
-
-<?php
-login_footer('user_pass');
+	$template_location = login_locate_template('resetpassword');
+	include $template_location;
 break;
 
 case 'register' :
@@ -676,39 +695,9 @@ case 'register' :
 	 * @param string $registration_redirect The redirect destination URL.
 	 */
 	$redirect_to = apply_filters( 'registration_redirect', $registration_redirect );
-	login_header(__('Registration Form'), '<p class="message register">' . __('Register For This Site') . '</p>', $errors);
-?>
 
-<form name="registerform" id="registerform" action="<?php echo esc_url( site_url('wp-login.php?action=register', 'login_post') ); ?>" method="post">
-	<p>
-		<label for="user_login"><?php _e('Username') ?><br />
-		<input type="text" name="user_login" id="user_login" class="input" value="<?php echo esc_attr(wp_unslash($user_login)); ?>" size="20" /></label>
-	</p>
-	<p>
-		<label for="user_email"><?php _e('E-mail') ?><br />
-		<input type="text" name="user_email" id="user_email" class="input" value="<?php echo esc_attr(wp_unslash($user_email)); ?>" size="25" /></label>
-	</p>
-	<?php
-	/**
-	 * Fires following the 'E-mail' field in the user registration form.
-	 *
-	 * @since 2.1.0
-	 */
-	do_action( 'register_form' );
-	?>
-	<p id="reg_passmail"><?php _e('A password will be e-mailed to you.') ?></p>
-	<br class="clear" />
-	<input type="hidden" name="redirect_to" value="<?php echo esc_attr( $redirect_to ); ?>" />
-	<p class="submit"><input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="<?php esc_attr_e('Register'); ?>" /></p>
-</form>
-
-<p id="nav">
-<a href="<?php echo esc_url( wp_login_url() ); ?>"><?php _e( 'Log in' ); ?></a> |
-<a href="<?php echo esc_url( wp_lostpassword_url() ); ?>" title="<?php esc_attr_e( 'Password Lost and Found' ) ?>"><?php _e( 'Lost your password?' ); ?></a>
-</p>
-
-<?php
-login_footer('user_login');
+	$template_location = login_locate_template('register');
+	include $template_location;
 break;
 
 case 'login' :
@@ -831,97 +820,11 @@ default:
 	if ( $reauth )
 		wp_clear_auth_cookie();
 
-	login_header(__('Log In'), '', $errors);
-
 	if ( isset($_POST['log']) )
 		$user_login = ( 'incorrect_password' == $errors->get_error_code() || 'empty_password' == $errors->get_error_code() ) ? esc_attr(wp_unslash($_POST['log'])) : '';
 	$rememberme = ! empty( $_POST['rememberme'] );
-?>
 
-<form name="loginform" id="loginform" action="<?php echo esc_url( site_url( 'wp-login.php', 'login_post' ) ); ?>" method="post">
-	<p>
-		<label for="user_login"><?php _e('Username') ?><br />
-		<input type="text" name="log" id="user_login" class="input" value="<?php echo esc_attr($user_login); ?>" size="20" /></label>
-	</p>
-	<p>
-		<label for="user_pass"><?php _e('Password') ?><br />
-		<input type="password" name="pwd" id="user_pass" class="input" value="" size="20" /></label>
-	</p>
-	<?php
-	/**
-	 * Fires following the 'Password' field in the login form.
-	 *
-	 * @since 2.1.0
-	 */
-	do_action( 'login_form' );
-	?>
-	<p class="forgetmenot"><label for="rememberme"><input name="rememberme" type="checkbox" id="rememberme" value="forever" <?php checked( $rememberme ); ?> /> <?php esc_attr_e('Remember Me'); ?></label></p>
-	<p class="submit">
-		<input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="<?php esc_attr_e('Log In'); ?>" />
-<?php	if ( $interim_login ) { ?>
-		<input type="hidden" name="interim-login" value="1" />
-<?php	} else { ?>
-		<input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>" />
-<?php 	} ?>
-<?php   if ( $customize_login ) : ?>
-		<input type="hidden" name="customize-login" value="1" />
-<?php   endif; ?>
-		<input type="hidden" name="testcookie" value="1" />
-	</p>
-</form>
-
-<?php if ( ! $interim_login ) { ?>
-<p id="nav">
-<?php if ( ! isset( $_GET['checkemail'] ) || ! in_array( $_GET['checkemail'], array( 'confirm', 'newpass' ) ) ) :
-	if ( get_option( 'users_can_register' ) ) :
-		$registration_url = sprintf( '<a href="%s">%s</a>', esc_url( wp_registration_url() ), __( 'Register' ) );
-		/** This filter is documented in wp-login.php */
-		echo apply_filters( 'register', $registration_url ) . ' | ';
-	endif;
-	?>
-	<a href="<?php echo esc_url( wp_lostpassword_url() ); ?>" title="<?php esc_attr_e( 'Password Lost and Found' ); ?>"><?php _e( 'Lost your password?' ); ?></a>
-<?php endif; ?>
-</p>
-<?php } ?>
-
-<script type="text/javascript">
-function wp_attempt_focus(){
-setTimeout( function(){ try{
-<?php if ( $user_login || $interim_login ) { ?>
-d = document.getElementById('user_pass');
-d.value = '';
-<?php } else { ?>
-d = document.getElementById('user_login');
-<?php if ( 'invalid_username' == $errors->get_error_code() ) { ?>
-if( d.value != '' )
-d.value = '';
-<?php
-}
-}?>
-d.focus();
-d.select();
-} catch(e){}
-}, 200);
-}
-
-<?php if ( !$error ) { ?>
-wp_attempt_focus();
-<?php } ?>
-if(typeof wpOnload=='function')wpOnload();
-<?php if ( $interim_login ) { ?>
-(function(){
-try {
-	var i, links = document.getElementsByTagName('a');
-	for ( i in links ) {
-		if ( links[i].href )
-			links[i].target = '_blank';
-	}
-} catch(e){}
-}());
-<?php } ?>
-</script>
-
-<?php
-login_footer();
+	$template_location = login_locate_template('login');
+	include $template_location;
 break;
 } // end action switch
